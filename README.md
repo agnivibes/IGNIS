@@ -5,7 +5,7 @@
 [![Copula Modeling](https://img.shields.io/badge/ML–Copula%20Estimation-ff69b4)](https://en.wikipedia.org/wiki/Copula_(probability))  
 [![Parameter Estimation](https://img.shields.io/badge/Parameter%20Estimation-%CE%B8%E2%89%A5%201-green)](https://en.wikipedia.org/wiki/Parameter_estimation)
 
-IGNIS (Latin for “fire”) is a unified neural estimation framework that delivers **robust**, **constraint-aware** parameter estimates for Archimedean copulas—even when classical methods fail due to non-monotonic mappings or pathological likelihood surfaces. IGNIS learns a direct mapping from data-driven dependency features to the copula parameter θ, enforcing θ ≥ 1 via a theory-guided softplus+1 output layer.
+IGNIS (Latin for “fire”) is a unified neural estimation framework that delivers **robust**, **constraint-aware** parameter estimates for Archimedean copulas, even when classical methods fail due to non-monotonic mappings or pathological likelihood surfaces. IGNIS learns a direct mapping from data-driven dependency features to the copula parameter θ, enforcing θ ≥ 1 via a theory-guided softplus+1 output layer.
 
 Code for Simulation Studies for IGNIS can be found in the Code_Sim.py file.
 
