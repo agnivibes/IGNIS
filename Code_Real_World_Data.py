@@ -1,3 +1,5 @@
+!pip install ucimlrepo
+
 # =============================================================================
 # CDC Dataset Analysis (Real Data with Bootstrap SE)
 # Structure mirrors the simulation code; only the final evaluation differs.
