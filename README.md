@@ -7,7 +7,7 @@
 
 IGNIS (Latin for “fire”) is a unified neural estimation framework that delivers **robust**, **constraint-aware** parameter estimates for Archimedean copulas, even when classical methods fail due to non-monotonic mappings or pathological likelihood surfaces. IGNIS learns a direct mapping from data-driven dependency features to the copula parameter θ, enforcing θ ≥ 1 via a theory-guided softplus+1 output layer.
 
-Code for Simulation Studies for IGNIS can be found in the Code_Sim.py file.
+Code for Simulation Studies for IGNIS can be found in the Code_Sim.py file. This file also has the log-likelihood comparison code (IGNIS vs MoM for A1 & A2).
 
 Real World Dataset 1: CDC Diabetes Health Indicators
 Source: The dataset is the Diabetes Health Indicators dataset, publicly available from the UCI Machine Learning Repository (ID 891).
