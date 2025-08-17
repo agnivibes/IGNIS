@@ -189,7 +189,7 @@ u_real = (df["GenHlth"].rank(method="average") / (n + 1)).values
 v_real = (df["PhysHlth"].rank(method="average") / (n + 1)).values
 
 # -------------------------
-# Bootstrap uncertainty (real data) — ONLY methodological change
+# Bootstrap uncertainty 
 # -------------------------
 print("\n--- Applying Trained Model to Real CDC Data ---")
 print("Copula    | θ Estimate | Bootstrap SE")
@@ -414,7 +414,7 @@ v_real = pit_transform(log_returns['MSFT'].values)
 n = len(u_real)
 
 # -------------------------
-# Bootstrap uncertainty (real data) — ONLY methodological change
+# Bootstrap uncertainty 
 # -------------------------
 print("\n--- Applying Trained Model to Real Financial Data ---")
 print("Copula    | θ Estimate | Bootstrap SE")
