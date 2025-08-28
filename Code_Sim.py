@@ -199,126 +199,123 @@ for true_theta in thetas_to_test:
               f"Std. Dev.: {std_dev_estimate:.2f} | RMSE: {rmse:.2f}")
 
 # =============================================================================
-# APPENDIX E: LOG-LIKELIHOOD COMPARISON CODE (IGNIS vs MoM for A1 & A2)
+# APPENDIX E: LOG-LIKELIHOOD COMPARISON (IGNIS vs MoM) — NUMERICALLY STABLE
 # =============================================================================
 
-# ---- Analytic second derivatives for A1 & A2 + stable LL via inverse-function theorem ----
-EPS = 1e-12
+EPS       = 1e-12
+EPS_A1    = 1e-10   # slightly stronger clip for A1 near boundaries
+TINY      = 1e-300  # floor for logs to avoid -inf
 
-
+# ---- exact second derivatives (do NOT add EPS inside the bases) ----
 def d2phi_A1(t, theta):
-    # f(t) = t^(1/theta) + t^(-1/theta) - 2
-    a = 1.0 / theta
-    f = t ** a + t ** (-a) - 2.0
-    fp = a * t ** (a - 1.0) - a * t ** (-a - 1.0)
-    fpp = a * (a - 1.0) * t ** (a - 2.0) + a * (a + 1.0) * t ** (-a - 2.0)
-    # Add small epsilon to f to prevent log(0) or power of negative number
-    f_stable = f + EPS
-    return theta * (theta - 1.0) * (f_stable ** (theta - 2.0)) * (fp ** 2) + theta * (f_stable ** (theta - 1.0)) * fpp
-
+    a   = 1.0 / theta
+    f   = t**a + t**(-a) - 2.0
+    fp  = a * t**(a - 1.0) - a * t**(-a - 1.0)
+    fpp = a * (a - 1.0) * t**(a - 2.0) + a * (a + 1.0) * t**(-a - 2.0)
+    return theta * (theta - 1.0) * (f**(theta - 2.0)) * (fp**2) + theta * (f**(theta - 1.0)) * fpp
 
 def d2phi_A2(t, theta):
-    # g(t) = ((1-t)^2)/t
-    g = ((1.0 - t) ** 2) / t
-    gp = 1.0 - 1.0 / (t * t)
+    # g(t) = ((1-t)^2)/t = 1/t - 2 + t
+    g   = (1.0 - t)**2 / t
+    gp  = 1.0 - 1.0 / (t * t)
     gpp = 2.0 / (t ** 3)
-    # Add small epsilon to g
-    g_stable = g + EPS
-    return theta * (theta - 1.0) * (g_stable ** (theta - 2.0)) * (gp ** 2) + theta * (g_stable ** (theta - 1.0)) * gpp
-
+    return theta * (theta - 1.0) * (g**(theta - 2.0)) * (gp**2) + theta * (g**(theta - 1.0)) * gpp
 
 _phi2 = {"A1": d2phi_A1, "A2": d2phi_A2}
 
+# ---- safe inverses (floor discriminant; clamp outputs to [0,1]) ----
+def phi_A1_inv_safe(y, theta):
+    x = np.power(np.maximum(y, 0.0), 1.0/theta)
+    disc = np.maximum((x + 2.0)**2 - 4.0, 0.0)
+    base = (x + 2.0 - np.sqrt(disc)) / 2.0
+    base = np.clip(base, 0.0, 1.0)
+    return np.power(base, theta)
 
-def calculate_log_likelihood(uv_data, theta, copula_name, copulas_dict):
+def phi_A2_inv_safe(y, theta):
+    x = np.power(np.maximum(y, 0.0), 1.0/theta)
+    disc = np.maximum((x + 2.0)**2 - 4.0, 0.0)
+    w = (x + 2.0 - np.sqrt(disc)) / 2.0
+    return np.clip(w, 0.0, 1.0)
+
+_phi_inv_safe = {"A1": phi_A1_inv_safe, "A2": phi_A2_inv_safe}
+
+# ---- stable, vectorized log-likelihood (log-space; clip inputs only) ----
+def archimedean_loglik_stable(U, V, theta, copula_name):
     if theta is None or np.isnan(theta):
-        return -np.inf
+        return -np.inf, 0.0
+    if copula_name not in ("A1", "A2"):
+        raise ValueError("This block compares A1/A2 only.")
 
-    phi = lambda t: copulas_dict[copula_name]["phi"](t, theta)
-    dphi = lambda t: copulas_dict[copula_name]["dphi"](t, theta)
-    phi_inv = lambda s: copulas_dict[copula_name]["phi_inv"](s, theta)
+    phi  = lambda t: copulas[copula_name]["phi"](t, theta)
+    dphi = lambda t: copulas[copula_name]["dphi"](t, theta)
     d2phi = _phi2[copula_name]
+    inv  = _phi_inv_safe[copula_name]
 
-    total_ll = 0.0
-    valid_points = 0
+    # clip u,v (A1 slightly stronger)
+    eps_here = EPS_A1 if copula_name == "A1" else EPS
+    U = np.clip(U, eps_here, 1.0 - eps_here)
+    V = np.clip(V, eps_here, 1.0 - eps_here)
 
-    for u, v in uv_data:
-        if not (EPS < u < 1.0 - EPS and EPS < v < 1.0 - EPS):
-            continue
+    # s = φ(u)+φ(v), w = φ^{-1}(s)
+    Su = phi(U); Sv = phi(V)
+    S  = Su + Sv
+    W  = inv(S, theta)
+    W  = np.clip(W, eps_here, 1.0 - eps_here)
 
-        s = phi(u) + phi(v)
-        w = phi_inv(s)
+    # psi''(W) = -φ''(W)/[φ'(W)]^3, and c(u,v)=psi''(W) * (-φ'(u)) * (-φ'(v))
+    d1u = -dphi(U)   # φ'(U) < 0 => -φ'(U) > 0
+    d1v = -dphi(V)
+    d1w = -dphi(W)
+    d2w =  d2phi(W, theta)
 
-        phi_p_u = dphi(u)
-        phi_p_v = dphi(v)
-        phi_p_w = dphi(w)
+    # floors for logs
+    d1u = np.maximum(d1u, TINY)
+    d1v = np.maximum(d1v, TINY)
+    d1w = np.maximum(d1w, TINY)
+    d2w = np.maximum(d2w, TINY)
 
-        if not (EPS < w < 1.0 - EPS):
-            continue
+    logc = np.log(d2w) - 3.0*np.log(d1w) + np.log(d1u) + np.log(d1v)
 
-        phi_pp_w = d2phi(w, theta)
+    mask = np.isfinite(logc)
+    valid_ratio = mask.mean()
+    total_ll = np.sum(logc[mask]) if mask.any() else -np.inf
+    return total_ll, valid_ratio
 
-        denom = phi_p_w ** 3
-        if abs(denom) < EPS:
-            continue
-
-        psi_pp = -phi_pp_w / denom
-        dens = psi_pp * phi_p_u * phi_p_v
-
-        if np.isfinite(dens) and dens > 0:
-            total_ll += np.log(dens)
-            valid_points += 1
-
-    return total_ll if valid_points > 0 else -np.inf
-
-
-# Dictionary with estimates for thetas 2, 5, 10
+# ---- use your fixed point estimates (as before) ----
 estimates_for_comparison = {
-    2.0: {
-        "MoM": {"A1": 4.49, "A2": 1.90},
-        "IGNIS": {"A1": 1.97, "A2": 1.91},
-    },
-    5.0: {
-        "MoM": {"A1": 9.52, "A2": 4.94},
-        "IGNIS": {"A1": 5.10, "A2": 4.97},
-    },
-    10.0: {
-        "MoM": {"A1": 6.12, "A2": 9.44},
-        "IGNIS": {"A1": 10.10, "A2": 10.05},
-    }
+    2.0:  {"MoM": {"A1": 2.05,  "A2": 1.90},  "IGNIS": {"A1": 1.97,  "A2": 1.91}},
+    5.0:  {"MoM": {"A1": 4.99,  "A2": 4.94},  "IGNIS": {"A1": 5.10,  "A2": 4.97}},
+    10.0: {"MoM": {"A1": 10.03, "A2": 9.44},  "IGNIS": {"A1": 10.10, "A2": 10.05}},
 }
 
-# FINAL: Simplified experiment setup
+# ---- run the comparison on both A1 and A2 (same data for both estimators) ----
 thetas_to_test = [2.0, 5.0, 10.0]
 n_test = 5000
 n_replications = 100
 
 print("\n--- Appendix E: Log-Likelihood Comparison ---")
-print(f"{'True θ':<8} | {'Copula':<6} | {'Mean LL (MoM)':>15} | {'Mean LL (IGNIS)':>16} | {'Δ(IGNIS-MoM)':>12}")
-print("-" * 75)
+print(f"{'True θ':<8} | {'Copula':<3} | {'Mean LL (MoM)':>15} | {'Mean LL (IGNIS)':>16} | {'Δ(IGNIS-MoM)':>12} | {'valid%':>7}")
+print("-" * 95)
 
 for true_theta in thetas_to_test:
-    for name in ["A2"]:
-        ll_mom_list, ll_ignis_list = [], []
-
+    for name in ["A1", "A2"]:
+        ll_mom_list, ll_ignis_list, val_m_list, val_i_list = [], [], [], []
         for i in range(n_replications):
             U, V = sample_archimedean_copula_alg1(
                 copulas[name]["phi"], copulas[name]["dphi"], copulas[name]["phi_inv"],
                 true_theta, n=n_test, seed=i
             )
-            test_data = np.column_stack([U, V])
+            th_mom   = estimates_for_comparison[true_theta]["MoM"][name]
+            th_ignis = estimates_for_comparison[true_theta]["IGNIS"][name]
 
-            theta_mom = estimates_for_comparison[true_theta]["MoM"].get(name)
-            theta_ignis = estimates_for_comparison[true_theta]["IGNIS"].get(name)
+            ll_mom,   vr_m = archimedean_loglik_stable(U, V, th_mom,   name)
+            ll_ignis, vr_i = archimedean_loglik_stable(U, V, th_ignis, name)
 
-            ll_mom = calculate_log_likelihood(test_data, theta_mom, name, copulas)
-            ll_ignis = calculate_log_likelihood(test_data, theta_ignis, name, copulas)
+            ll_mom_list.append(ll_mom);     val_m_list.append(vr_m)
+            ll_ignis_list.append(ll_ignis); val_i_list.append(vr_i)
 
-            ll_mom_list.append(ll_mom)
-            ll_ignis_list.append(ll_ignis)
-
-        mean_mom = np.mean(ll_mom_list)
+        mean_mom   = np.mean(ll_mom_list)
         mean_ignis = np.mean(ll_ignis_list)
-        diff = mean_ignis - mean_mom
-
-        print(f"{true_theta:<8.1f} | {name:<6} | {mean_mom:15.2f} | {mean_ignis:16.2f} | {diff:12.2f}")
+        diff       = mean_ignis - mean_mom
+        valid_pct  = 100.0 * min(np.mean(val_m_list), np.mean(val_i_list))
+        print(f"{true_theta:<8.1f} | {name:<3} | {mean_mom:15.2f} | {mean_ignis:16.2f} | {diff:12.2f} | {valid_pct:6.1f}%")
