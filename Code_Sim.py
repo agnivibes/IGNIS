@@ -205,6 +205,17 @@ for true_theta in thetas_to_test:
 EPS       = 1e-12
 EPS_A1    = 1e-10   # slightly stronger clip for A1 near boundaries
 TINY      = 1e-300  # floor for logs to avoid -inf
+EPSILON_EQUIV = 1e-3  # nats per observation (your practical equivalence margin)
+
+
+def mean_ci(x, alpha=0.05):
+    """Mean, 95% CI, and sample SD of a 1D array."""
+    x = np.asarray(x, dtype=float)
+    R = x.size
+    m = x.mean()
+    s = x.std(ddof=1)
+    h = stats.t.ppf(1 - alpha/2, R - 1) * s / np.sqrt(R)
+    return m, m - h, m + h, s
 
 # ---- exact second derivatives (do NOT add EPS inside the bases) ----
 def d2phi_A1(t, theta):
@@ -314,8 +325,59 @@ for true_theta in thetas_to_test:
             ll_mom_list.append(ll_mom);     val_m_list.append(vr_m)
             ll_ignis_list.append(ll_ignis); val_i_list.append(vr_i)
 
-        mean_mom   = np.mean(ll_mom_list)
-        mean_ignis = np.mean(ll_ignis_list)
-        diff       = mean_ignis - mean_mom
-        valid_pct  = 100.0 * min(np.mean(val_m_list), np.mean(val_i_list))
-        print(f"{true_theta:<8.1f} | {name:<3} | {mean_mom:15.2f} | {mean_ignis:16.2f} | {diff:12.2f} | {valid_pct:6.1f}%")
+        # Convert to arrays
+        arr_m = np.asarray(ll_mom_list, dtype=float)
+        arr_i = np.asarray(ll_ignis_list, dtype=float)
+        d = arr_i - arr_m  # paired differences (IGNIS - MoM)
+
+        # Means & 95% CIs (totals; divide by n_test if you want per-obs)
+        m_m, lo_m, hi_m, sd_m = mean_ci(arr_m)
+        m_i, lo_i, hi_i, sd_i = mean_ci(arr_i)
+        m_d, lo_d, hi_d, sd_d = mean_ci(d)
+
+        # ---- Per-observation scale + TOST (equivalence) ----
+        per_obs_m = arr_m / n_test
+        per_obs_i = arr_i / n_test
+        per_obs_d = d / n_test
+
+        pm_d, plo_d, phi_d, psd_d = mean_ci(per_obs_d)  # we only need Δ here
+
+        R = per_obs_d.size
+        se = psd_d / np.sqrt(R)
+        t_lower = (pm_d + EPSILON_EQUIV) / se
+        t_upper = (pm_d - EPSILON_EQUIV) / se
+        p_lower = 1.0 - stats.t.cdf(t_lower, df=R - 1)  # H0: μΔ <= -ε
+        p_upper = stats.t.cdf(t_upper, df=R - 1)  # H0: μΔ >=  ε
+        equiv = (p_lower < 0.05) and (p_upper < 0.05)
+
+        print(f"{'':<8} | {'':<3} | "
+              f"Per-obs Δ̄: {pm_d:.3e} [{plo_d:.3e}, {phi_d:.3e}]  | "
+              f"TOST ε={EPSILON_EQUIV:.1e} → p_lower={p_lower:.3f}, p_upper={p_upper:.3f}, equiv={equiv}")
+
+        # Paired tests
+        tstat, p_t = stats.ttest_rel(arr_i, arr_m)  # paired t-test
+        try:
+            # zero_method='wilcox' is default; raises if all zeros/ties
+            w_stat, p_w = stats.wilcoxon(d)
+        except ValueError:
+            p_w = np.nan  # all zeros / ties case
+
+        # Effect size (paired Cohen's d = mean(diff)/sd(diff))
+        d_eff = m_d / sd_d if sd_d > 0 else np.nan
+
+        # Valid ratio (% of finite log-likelihood terms)
+        valid_pct = 100.0 * min(np.mean(val_m_list), np.mean(val_i_list))
+
+        # Report
+        print(f"{true_theta:<8.1f} | {name:<3} | "
+              f"MoM mean±CI: {m_m:,.2f} [{lo_m:,.2f}, {hi_m:,.2f}] | "
+              f"IGNIS mean±CI: {m_i:,.2f} [{lo_i:,.2f}, {hi_i:,.2f}] | "
+              f"valid≈{valid_pct:5.1f}%")
+
+        print(f"{'':<8} | {'':<3} | "
+              f"Δ̄(IGNIS−MoM): {m_d:,.2f} [{lo_d:,.2f}, {hi_d:,.2f}] | "
+              f"t(paired) p={p_t:.3f} | Wilcoxon p={p_w:.3f} | d={d_eff:.2f}")
+
+        # Optional separator for clarity
+        if name == "A2":
+            print("-" * 150)
