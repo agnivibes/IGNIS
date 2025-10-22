@@ -199,7 +199,7 @@ for true_theta in thetas_to_test:
               f"Std. Dev.: {std_dev_estimate:.2f} | RMSE: {rmse:.2f}")
 
 # =============================================================================
-# APPENDIX E: LOG-LIKELIHOOD COMPARISON (IGNIS vs MoM) — NUMERICALLY STABLE
+# LOG-LIKELIHOOD COMPARISON (IGNIS vs MoM) — NUMERICALLY STABLE
 # =============================================================================
 
 EPS       = 1e-12
