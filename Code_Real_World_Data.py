@@ -1,20 +1,31 @@
 !pip install ucimlrepo
 
+
+
 # =============================================================================
 # CDC Dataset Analysis (Real Data with Bootstrap SE)
 # Structure mirrors the simulation code; only the final evaluation differs.
 # =============================================================================
+import os
+os.environ["PYTHONHASHSEED"] = "123"
+os.environ["TF_DETERMINISTIC_OPS"] = "1"
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
+
 import numpy as np
 import pandas as pd
 from scipy.stats import kendalltau, spearmanr
 from scipy.optimize import bisect
 import tensorflow as tf
+tf.config.threading.set_intra_op_parallelism_threads(1)
+tf.config.threading.set_inter_op_parallelism_threads(1)
 from tensorflow import keras
 from tensorflow.keras import layers
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 import random
-import os
+from numpy.random import default_rng
 import torch
 from ucimlrepo import fetch_ucirepo
 
@@ -52,7 +63,7 @@ def phi_joe(t, theta):         return -np.log(1.0 - (1.0 - t)**theta)
 def dphi_joe(t, theta):
     num = theta * (1.0 - t)**(theta-1)
     den = 1.0 - (1.0 - t)**theta
-    return num / (den + 1e-15)
+    return - num / (den + 1e-15) # Correctly returns a NEGATIVE value
 def phi_joe_inv(x, theta):     return 1.0 - (1.0 - np.exp(-x))**(1.0/theta)
 
 def phi_A1(t, theta):
@@ -179,43 +190,48 @@ model.fit(
 )
 
 # -------------------------
-# Load & preprocess REAL data (CDC) — new final section
+# Load & preprocess REAL data (CDC)
 # -------------------------
 print("\n--- Loading and Preprocessing CDC Diabetes Data ---")
 cdc = fetch_ucirepo(id=891)
-df = cdc.data.features
-n = len(df)
-u_real = (df["GenHlth"].rank(method="average") / (n + 1)).values
-v_real = (df["PhysHlth"].rank(method="average") / (n + 1)).values
+df  = cdc.data.features[["GenHlth", "PhysHlth"]].sort_index()  # lock row order
+n   = len(df)
+u_real = (df["GenHlth"].rank(method="average") / (n + 1)).to_numpy()
+v_real = (df["PhysHlth"].rank(method="average") / (n + 1)).to_numpy()
+
 
 # -------------------------
-# Bootstrap uncertainty 
+# Bootstrap uncertainty
 # -------------------------
 print("\n--- Applying Trained Model to Real CDC Data ---")
 print("Copula    | θ Estimate | Bootstrap SE")
 print("----------|------------|--------------")
 
-B = 100  # bootstrap iterations
+B = 1000  # bootstrap iterations (deterministic)
+rng = default_rng(2025)  # fixed seed → identical SEs across runs
+
 for name in copula_types:
     one_hot = np.zeros(len(copula_types))
     one_hot[copula_types.index(name)] = 1.0
 
-    # Option A (common): use full-sample prediction as the point estimate
+    # point estimate on full sample
     feats_full = compute_summary_features(u_real, v_real)
     iv_full = np.hstack([feats_full, one_hot]).reshape(1, -1)
     theta_hat_full = model.predict(scaler.transform(iv_full), verbose=0)[0, 0]
 
-    # Bootstrap SE
+    # bootstrap SE (pairs bootstrap)
     boot_preds = []
     for _ in range(B):
-        idx = np.random.choice(n, n, replace=True)  # pairs bootstrap
+        idx = rng.integers(0, n, size=n)  # deterministic resamples
         feats_b = compute_summary_features(u_real[idx], v_real[idx])
         iv_b = np.hstack([feats_b, one_hot]).reshape(1, -1)
         pred_b = model.predict(scaler.transform(iv_b), verbose=0)[0, 0]
         boot_preds.append(pred_b)
 
-    se = np.std(boot_preds)
+    se = np.std(boot_preds, ddof=1)  # classic unbiased SE
     print(f"{name:<9} | {theta_hat_full:>10.4f} | {se:.4f}")
+
+
 
 
 
@@ -225,17 +241,25 @@ for name in copula_types:
 # Finance Dataset Analysis (Real Data with Bootstrap SE)
 # Structure mirrors the simulation code; only the final evaluation differs.
 # =============================================================================
+import os
+os.environ["PYTHONHASHSEED"] = "123"
+os.environ["TF_DETERMINISTIC_OPS"] = "1"
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
 import numpy as np
 import pandas as pd
 from scipy.stats import kendalltau, spearmanr, rankdata
 from scipy.optimize import bisect
 import tensorflow as tf
+tf.config.threading.set_intra_op_parallelism_threads(1)
+tf.config.threading.set_inter_op_parallelism_threads(1)
 from tensorflow import keras
 from tensorflow.keras import layers
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 import random
-import os
+from numpy.random import default_rng
 import torch
 import yfinance as yf
 
@@ -273,7 +297,7 @@ def phi_joe(t, theta):         return -np.log(1.0 - (1.0 - t)**theta)
 def dphi_joe(t, theta):
     num = theta * (1.0 - t)**(theta-1)
     den = 1.0 - (1.0 - t)**theta
-    return num / (den + 1e-15)
+    return -num / (den + 1e-15)
 def phi_joe_inv(x, theta):     return 1.0 - (1.0 - np.exp(-x))**(1.0/theta)
 
 def phi_A1(t, theta):
@@ -403,41 +427,66 @@ model.fit(
 # Load & preprocess REAL data (Finance) — new final section
 # -------------------------
 print("\n--- Loading and Preprocessing Financial Data ---")
-data = yf.download(['AAPL', 'MSFT'], start='2020-01-01', end='2023-12-31')['Adj Close']
-log_returns = np.log(data / data.shift(1)).dropna()
+TICKERS = ['AAPL', 'MSFT']
+
+# Force auto_adjust=False so 'Adj Close' exists; silence progress + warning
+data = yf.download(TICKERS, start='2020-01-01', end='2023-12-31',
+                   auto_adjust=False, progress=False)
+
+# Handle MultiIndex (common for multiple tickers) vs single-index
+if isinstance(data.columns, pd.MultiIndex):
+    prices = data['Adj Close'][TICKERS]  # columns: AAPL, MSFT
+else:
+    # Fallback: if single-index, keep just the two adj close columns by name
+    prices = data[['Adj Close']]  # unlikely when multiple tickers, but safe
+
+# Clean and compute log returns
+prices = prices.dropna(how='any')
+CACHE = "aapl_msft_2020_2023_adjclose.csv"
+if os.path.exists(CACHE):
+    prices = pd.read_csv(CACHE, index_col=0, parse_dates=True)
+else:
+    # (use the prices computed above)
+    prices.to_csv(CACHE)
+
+log_returns = np.log(prices / prices.shift(1)).dropna()
 
 def pit_transform(series):
     return rankdata(series, method='average') / (len(series) + 1)
 
-u_real = pit_transform(log_returns['AAPL'].values)
-v_real = pit_transform(log_returns['MSFT'].values)
+u_real = pit_transform(log_returns['AAPL'].to_numpy())
+v_real = pit_transform(log_returns['MSFT'].to_numpy())
 n = len(u_real)
+
 
 # -------------------------
 # Bootstrap uncertainty 
 # -------------------------
+
 print("\n--- Applying Trained Model to Real Financial Data ---")
 print("Copula    | θ Estimate | Bootstrap SE")
 print("----------|------------|--------------")
 
-B = 100  # bootstrap iterations
+B = 1000
+rng = default_rng(2025)  # fixed seed → identical SEs across runs
+
 for name in copula_types:
     one_hot = np.zeros(len(copula_types))
     one_hot[copula_types.index(name)] = 1.0
 
-    # Option A (common): use full-sample prediction as the point estimate
+    # point estimate on full sample
     feats_full = compute_summary_features(u_real, v_real)
     iv_full = np.hstack([feats_full, one_hot]).reshape(1, -1)
     theta_hat_full = model.predict(scaler.transform(iv_full), verbose=0)[0, 0]
 
-    # Bootstrap SE
+    # pairs bootstrap with deterministic RNG
     boot_preds = []
     for _ in range(B):
-        idx = np.random.choice(n, n, replace=True)  # pairs bootstrap
+        idx = rng.integers(0, n, size=n)
         feats_b = compute_summary_features(u_real[idx], v_real[idx])
         iv_b = np.hstack([feats_b, one_hot]).reshape(1, -1)
         pred_b = model.predict(scaler.transform(iv_b), verbose=0)[0, 0]
         boot_preds.append(pred_b)
 
-    se = np.std(boot_preds)
+    se = np.std(boot_preds, ddof=1)
     print(f"{name:<9} | {theta_hat_full:>10.4f} | {se:.4f}")
