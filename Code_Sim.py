@@ -39,7 +39,7 @@ def phi_joe(t, theta):         return -np.log(1.0 - (1.0 - t)**theta)
 def dphi_joe(t, theta):
     num = theta * (1.0 - t)**(theta-1)
     den = 1.0 - (1.0 - t)**theta
-    return num / (den + 1e-15)
+    return -num / (den + 1e-15)
 def phi_joe_inv(x, theta):     return 1.0 - (1.0 - np.exp(-x))**(1.0/theta)
 
 def phi_A1(t, theta):
