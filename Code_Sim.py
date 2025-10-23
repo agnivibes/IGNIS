@@ -168,7 +168,7 @@ theta_model.fit(
 # -------------------------
 thetas_to_test = [2.0, 5.0, 10.0, 15.0, 20.0]
 n_test_samples = 5000
-n_runs = 100
+n_runs = 1000
 
 print("--- Running Rigorous Simulation Study ---")
 for true_theta in thetas_to_test:
@@ -291,7 +291,7 @@ estimates_for_comparison = {
 # ---- run the comparison on both A1 and A2 (same data for both estimators) ----
 thetas_to_test = [2.0, 5.0, 10.0]
 n_test = 5000
-n_replications = 100
+n_replications = 1000
 
 print("\n--- Appendix E: Log-Likelihood Comparison ---")
 print(f"{'True θ':<8} | {'Copula':<3} | {'Mean LL (MoM)':>15} | {'Mean LL (IGNIS)':>16} | {'Δ(IGNIS-MoM)':>12} | {'valid%':>7}")
