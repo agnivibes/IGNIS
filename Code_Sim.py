@@ -365,7 +365,7 @@ for true_theta in thetas_to_test:
         p_upper = 1 - t.cdf(t2, df=nrep - 1)  # H0: mean_diff >=  eps
         tost_equiv = (p_lower < alpha) and (p_upper < alpha)
 
-        # --- print row, mirroring the paper’s info ---
+        # --- print row ---
         print(f"{true_theta:<8.1f} | {name:<3} | "
               f"{mean_mom:15.2f} | {mean_ignis:16.2f} | {diff_total:12.2f} | {valid_pct:6.1f}%")
 
