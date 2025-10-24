@@ -1,13 +1,21 @@
+import os
+os.environ["PYTHONHASHSEED"] = "123"
+os.environ["TF_DETERMINISTIC_OPS"] = "1"
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
 import numpy as np
 from scipy.stats import kendalltau, spearmanr
 from scipy.optimize import bisect
 import tensorflow as tf
+tf.config.threading.set_intra_op_parallelism_threads(1)
+tf.config.threading.set_inter_op_parallelism_threads(1)
 from tensorflow import keras
 from tensorflow.keras import layers
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
+from scipy.stats import ttest_rel, wilcoxon, t
 import random
-import os
 import torch
 
 # -------------------------
@@ -314,8 +322,56 @@ for true_theta in thetas_to_test:
             ll_mom_list.append(ll_mom);     val_m_list.append(vr_m)
             ll_ignis_list.append(ll_ignis); val_i_list.append(vr_i)
 
-        mean_mom   = np.mean(ll_mom_list)
+        # --- aggregate & per-observation diffs (nats/obs) ---
+        mean_mom = np.mean(ll_mom_list)
         mean_ignis = np.mean(ll_ignis_list)
-        diff       = mean_ignis - mean_mom
-        valid_pct  = 100.0 * min(np.mean(val_m_list), np.mean(val_i_list))
-        print(f"{true_theta:<8.1f} | {name:<3} | {mean_mom:15.2f} | {mean_ignis:16.2f} | {diff:12.2f} | {valid_pct:6.1f}%")
+        diff_total = mean_ignis - mean_mom  # total LL difference
+        valid_pct = 100.0 * min(np.mean(val_m_list), np.mean(val_i_list))
+
+        diff_po = (np.asarray(ll_ignis_list) - np.asarray(
+            ll_mom_list)) / n_test  # per-observation diffs (each replication)
+
+        # --- summary stats on per-observation differences Δ (nats/obs) ---
+        alpha = 0.05
+        nrep = len(diff_po)
+        mean_diff = float(np.mean(diff_po))
+        sd_diff = float(np.std(diff_po, ddof=1))
+        se_diff = sd_diff / np.sqrt(nrep)
+
+        # 95% CI via t distribution
+        tcrit = t.ppf(1 - alpha / 2, df=nrep - 1)
+        ci_lo = mean_diff - tcrit * se_diff
+        ci_hi = mean_diff + tcrit * se_diff
+
+        # paired t-test (vs 0)
+        t_stat, p_t = ttest_rel(np.asarray(ll_ignis_list) / n_test, np.asarray(ll_mom_list) / n_test)
+
+        # Wilcoxon signed-rank (vs 0); fall back if all zeros
+        try:
+            _, p_w = wilcoxon(diff_po, alternative="two-sided", zero_method="wilcox")
+        except ValueError:
+            p_w = np.nan
+
+        # Cohen's d (paired): mean(Δ) / sd(Δ)
+        cohen_d = mean_diff / sd_diff if sd_diff > 0 else np.nan
+
+        # --- TOST equivalence test with margin epsilon (nats/obs) ---
+        eps = 1e-3
+        # H1: mean_diff > -eps  and  mean_diff < eps  (equivalence if both p<alpha)
+        t1 = (mean_diff - (-eps)) / se_diff  # lower bound test
+        t2 = (eps - mean_diff) / se_diff  # upper bound test
+        # one-sided p-values using t CDF
+        p_lower = 1 - t.cdf(t1, df=nrep - 1)  # H0: mean_diff <= -eps
+        p_upper = 1 - t.cdf(t2, df=nrep - 1)  # H0: mean_diff >=  eps
+        tost_equiv = (p_lower < alpha) and (p_upper < alpha)
+
+        # --- print row, mirroring the paper’s info ---
+        print(f"{true_theta:<8.1f} | {name:<3} | "
+              f"{mean_mom:15.2f} | {mean_ignis:16.2f} | {diff_total:12.2f} | {valid_pct:6.1f}%")
+
+        print(
+            f"    Delta (nats/obs): {mean_diff:.3e}  CI95% [{ci_lo:.3e}, {ci_hi:.3e}]  "
+            f"p_t={p_t:.2e}  p_w={p_w:.2e}  d={cohen_d:.2f}  "
+            f"TOST eps={eps:.0e}: p_L={p_lower:.2e}, p_U={p_upper:.2e} -> {'Yes' if tost_equiv else 'No'}"
+        )
+
