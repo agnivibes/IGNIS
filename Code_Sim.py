@@ -301,7 +301,7 @@ thetas_to_test = [2.0, 5.0, 10.0]
 n_test = 5000
 n_replications = 1000
 
-print("\n--- Appendix E: Log-Likelihood Comparison ---")
+print("\n--- Log-Likelihood Comparison ---")
 print(f"{'True θ':<8} | {'Copula':<3} | {'Mean LL (MoM)':>15} | {'Mean LL (IGNIS)':>16} | {'Δ(IGNIS-MoM)':>12} | {'valid%':>7}")
 print("-" * 95)
 
