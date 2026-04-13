@@ -42,12 +42,13 @@ Aich, A. (2025). IGNIS: A Robust Neural Network Framework for Constrained Parame
 If you use this code or method in your own work, please cite:
 
 ```bibtex
-@article{Aich2025TCP,
-  title   = {IGNIS: A Robust Neural Network Framework for Constrained Parameter Estimation in Archimedean Copulas},
-  author  = {Aich, Agnideep},
-  year    = {2025},
-  note    = {Manuscript under review}
-  url     = {https://doi.org/10.48550/arXiv.2505.22518 }
+@article{Aich10032026,
+author = {Agnideep Aich},
+title = {IGNIS: a robust neural network framework for constrained parameter estimation in Archimedean copulas},
+journal = {Communications in Statistics - Simulation and Computation},
+pages = {1--28},
+year = {2026},
+doi = {10.1080/03610918.2026.2634296}
 }
 ```
 
